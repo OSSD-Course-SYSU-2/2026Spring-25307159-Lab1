@@ -3,11 +3,19 @@ interface Point {
   y: number;
 }
 
+interface GameSaveData {
+  snake: Point[];
+  food: Point;
+  direction: string;
+  score: number;
+  highScore: number;
+  speed: number;
+  gameState: string;
+}
+
 @Entry
 @Component
 struct Index {
-  private readonly GRID_SIZE: number = 20;
-  private readonly CELL_SIZE: number = 18;
   private readonly INITIAL_SPEED: number = 180;
   private readonly MIN_SPEED: number = 80;
   private readonly SPEED_STEP: number = 3;
@@ -19,27 +27,100 @@ struct Index {
   @State food: Point = { x: 0, y: 0 };
   @State snakeDirection: string = 'RIGHT';
   @State currentSpeed: number = 180;
+  @State gridSize: number = 20;
+  @State cellSize: number = 18;
+  @State isTablet: boolean = false;
+  @State deviceTypeLabel: string = '手机';
 
   private settings: RenderingContextSettings = new RenderingContextSettings(true);
   private context: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.settings);
   private gameInterval: number = -1;
-  private canvasWidth: number = 20 * 18;
-  private canvasHeight: number = 20 * 18;
   private nextDirection: string = 'RIGHT';
 
   aboutToAppear(): void {
+    this.detectDevice();
     this.initGame();
+    this.tryRestoreData();
   }
 
   aboutToDisappear(): void {
     this.stopGame();
   }
 
+  private detectDevice(): void {
+    const display = this.context;
+    try {
+      const screenWidth = 360;
+      if (screenWidth >= 600) {
+        this.isTablet = true;
+        this.gridSize = 24;
+        this.cellSize = 22;
+        this.deviceTypeLabel = '平板';
+      } else {
+        this.isTablet = false;
+        this.gridSize = 20;
+        this.cellSize = 18;
+        this.deviceTypeLabel = '手机';
+      }
+    } catch (e) {
+      this.isTablet = false;
+      this.gridSize = 20;
+      this.cellSize = 18;
+      this.deviceTypeLabel = '手机';
+    }
+  }
+
+  private tryRestoreData(): void {
+    const restoreData = AppStorage.get<string>('restoreGameData');
+    if (restoreData) {
+      try {
+        const data: GameSaveData = JSON.parse(restoreData) as GameSaveData;
+        this.snake = data.snake;
+        this.food = data.food;
+        this.snakeDirection = data.direction;
+        this.nextDirection = data.direction;
+        this.score = data.score;
+        this.highScore = data.highScore;
+        this.currentSpeed = data.speed;
+        this.gameState = data.gameState;
+        AppStorage.delete('restoreGameData');
+        if (this.gameState === 'PLAYING') {
+          this.startTimer();
+        }
+      } catch (e) {
+        this.initGame();
+      }
+    }
+  }
+
+  private saveGameData(): string {
+    const data: GameSaveData = {
+      snake: this.snake,
+      food: this.food,
+      direction: this.snakeDirection,
+      score: this.score,
+      highScore: this.highScore,
+      speed: this.currentSpeed,
+      gameState: this.gameState
+    };
+    return JSON.stringify(data);
+  }
+
+  private get canvasWidth(): number {
+    return this.gridSize * this.cellSize;
+  }
+
+  private get canvasHeight(): number {
+    return this.gridSize * this.cellSize;
+  }
+
   private initGame(): void {
+    const cx = Math.floor(this.gridSize / 2);
+    const cy = Math.floor(this.gridSize / 2);
     this.snake = [
-      { x: 10, y: 10 },
-      { x: 9, y: 10 },
-      { x: 8, y: 10 }
+      { x: cx, y: cy },
+      { x: cx - 1, y: cy },
+      { x: cx - 2, y: cy }
     ];
     this.snakeDirection = 'RIGHT';
     this.nextDirection = 'RIGHT';
@@ -52,8 +133,8 @@ struct Index {
     let newFood: Point;
     do {
       newFood = {
-        x: Math.floor(Math.random() * this.GRID_SIZE),
-        y: Math.floor(Math.random() * this.GRID_SIZE)
+        x: Math.floor(Math.random() * this.gridSize),
+        y: Math.floor(Math.random() * this.gridSize)
       };
     } while (this.isOnSnake(newFood));
     this.food = newFood;
@@ -132,7 +213,7 @@ struct Index {
 
   private checkCollision(): void {
     const head = this.snake[0];
-    if (head.x < 0 || head.x >= this.GRID_SIZE || head.y < 0 || head.y >= this.GRID_SIZE) {
+    if (head.x < 0 || head.x >= this.gridSize || head.y < 0 || head.y >= this.gridSize) {
       this.gameOver();
       return;
     }
@@ -166,61 +247,61 @@ struct Index {
   private drawGrid(): void {
     this.context.strokeStyle = 'rgba(255,255,255,0.04)';
     this.context.lineWidth = 0.5;
-    for (let i = 1; i < this.GRID_SIZE; i++) {
+    for (let i = 1; i < this.gridSize; i++) {
       this.context.beginPath();
-      this.context.moveTo(i * this.CELL_SIZE, 0);
-      this.context.lineTo(i * this.CELL_SIZE, this.canvasHeight);
+      this.context.moveTo(i * this.cellSize, 0);
+      this.context.lineTo(i * this.cellSize, this.canvasHeight);
       this.context.stroke();
       this.context.beginPath();
-      this.context.moveTo(0, i * this.CELL_SIZE);
-      this.context.lineTo(this.canvasWidth, i * this.CELL_SIZE);
+      this.context.moveTo(0, i * this.cellSize);
+      this.context.lineTo(this.canvasWidth, i * this.cellSize);
       this.context.stroke();
     }
   }
 
   private drawSnake(): void {
     this.snake.forEach((segment, index) => {
-      const x = segment.x * this.CELL_SIZE;
-      const y = segment.y * this.CELL_SIZE;
+      const x = segment.x * this.cellSize;
+      const y = segment.y * this.cellSize;
       const pad = index === 0 ? 1 : 2;
 
       if (index === 0) {
         this.context.fillStyle = '#00d4ff';
-        this.context.fillRect(x + pad, y + pad, this.CELL_SIZE - pad * 2, this.CELL_SIZE - pad * 2);
+        this.context.fillRect(x + pad, y + pad, this.cellSize - pad * 2, this.cellSize - pad * 2);
         this.context.fillStyle = '#ffffff';
         const eyeSize = 2;
         if (this.snakeDirection === 'RIGHT') {
-          this.context.fillRect(x + this.CELL_SIZE - 5, y + 4, eyeSize, eyeSize);
-          this.context.fillRect(x + this.CELL_SIZE - 5, y + this.CELL_SIZE - 6, eyeSize, eyeSize);
+          this.context.fillRect(x + this.cellSize - 5, y + 4, eyeSize, eyeSize);
+          this.context.fillRect(x + this.cellSize - 5, y + this.cellSize - 6, eyeSize, eyeSize);
         } else if (this.snakeDirection === 'LEFT') {
           this.context.fillRect(x + 3, y + 4, eyeSize, eyeSize);
-          this.context.fillRect(x + 3, y + this.CELL_SIZE - 6, eyeSize, eyeSize);
+          this.context.fillRect(x + 3, y + this.cellSize - 6, eyeSize, eyeSize);
         } else if (this.snakeDirection === 'UP') {
           this.context.fillRect(x + 4, y + 3, eyeSize, eyeSize);
-          this.context.fillRect(x + this.CELL_SIZE - 6, y + 3, eyeSize, eyeSize);
+          this.context.fillRect(x + this.cellSize - 6, y + 3, eyeSize, eyeSize);
         } else {
-          this.context.fillRect(x + 4, y + this.CELL_SIZE - 5, eyeSize, eyeSize);
-          this.context.fillRect(x + this.CELL_SIZE - 6, y + this.CELL_SIZE - 5, eyeSize, eyeSize);
+          this.context.fillRect(x + 4, y + this.cellSize - 5, eyeSize, eyeSize);
+          this.context.fillRect(x + this.cellSize - 6, y + this.cellSize - 5, eyeSize, eyeSize);
         }
       } else {
         const t = index / this.snake.length;
         const g = Math.round(212 - t * 100);
         const b = Math.round(255 - t * 100);
         this.context.fillStyle = `rgb(0,${g},${b})`;
-        this.context.fillRect(x + pad, y + pad, this.CELL_SIZE - pad * 2, this.CELL_SIZE - pad * 2);
+        this.context.fillRect(x + pad, y + pad, this.cellSize - pad * 2, this.cellSize - pad * 2);
       }
     });
   }
 
   private drawFood(): void {
-    const x = this.food.x * this.CELL_SIZE;
-    const y = this.food.y * this.CELL_SIZE;
+    const x = this.food.x * this.cellSize;
+    const y = this.food.y * this.cellSize;
     this.context.fillStyle = '#ff4da6';
     this.context.beginPath();
     this.context.arc(
-      x + this.CELL_SIZE / 2,
-      y + this.CELL_SIZE / 2,
-      this.CELL_SIZE / 2 - 2,
+      x + this.cellSize / 2,
+      y + this.cellSize / 2,
+      this.cellSize / 2 - 2,
       0,
       2 * Math.PI
     );
@@ -243,20 +324,25 @@ struct Index {
     Column() {
       Row() {
         Text('贪吃蛇')
-          .fontSize(24)
+          .fontSize(this.isTablet ? 30 : 24)
           .fontWeight(FontWeight.Bold)
           .fontColor('#00d4ff')
           .margin({ right: 20 })
 
+        Text(`[${this.deviceTypeLabel}]`)
+          .fontSize(12)
+          .fontColor('rgba(0, 212, 255, 0.5)')
+          .margin({ right: 12 })
+
         Blank()
 
         Text(`分数: ${this.score}`)
-          .fontSize(16)
+          .fontSize(this.isTablet ? 18 : 16)
           .fontColor('#00d4ff')
           .margin({ right: 16 })
 
         Text(`最高: ${this.highScore}`)
-          .fontSize(16)
+          .fontSize(this.isTablet ? 18 : 16)
           .fontColor('#ff4da6')
       }
       .width('100%')
@@ -274,28 +360,33 @@ struct Index {
           Column() {
             if (this.gameState === 'OVER') {
               Text('游戏结束')
-                .fontSize(28)
+                .fontSize(this.isTablet ? 36 : 28)
                 .fontWeight(FontWeight.Bold)
                 .fontColor('#ff4da6')
                 .margin({ bottom: 8 })
 
               Text(`${this.score}`)
-                .fontSize(40)
+                .fontSize(this.isTablet ? 56 : 40)
                 .fontWeight(FontWeight.Bold)
                 .fontColor('#ff4da6')
                 .margin({ bottom: 16 })
             } else {
               Text('贪吃蛇')
-                .fontSize(28)
+                .fontSize(this.isTablet ? 36 : 28)
                 .fontWeight(FontWeight.Bold)
                 .fontColor('#00d4ff')
+                .margin({ bottom: 16 })
+
+              Text('支持多端部署与自由流转')
+                .fontSize(12)
+                .fontColor('rgba(255,255,255,0.4)')
                 .margin({ bottom: 16 })
             }
 
             Button(this.gameState === 'OVER' ? '再来一局' : '开始游戏')
-              .width(140)
-              .height(44)
-              .fontSize(16)
+              .width(this.isTablet ? 180 : 140)
+              .height(this.isTablet ? 52 : 44)
+              .fontSize(this.isTablet ? 18 : 16)
               .fontColor('#ffffff')
               .backgroundColor('#00d4ff')
               .borderRadius(8)
@@ -339,9 +430,9 @@ struct Index {
 
       Column() {
         Button('▲')
-          .width(52)
-          .height(52)
-          .fontSize(20)
+          .width(this.isTablet ? 64 : 52)
+          .height(this.isTablet ? 64 : 52)
+          .fontSize(this.isTablet ? 26 : 20)
           .backgroundColor('rgba(0, 212, 255, 0.1)')
           .fontColor('#00d4ff')
           .border({ width: 1, color: '#00d4ff' })
@@ -350,34 +441,34 @@ struct Index {
 
         Row() {
           Button('◄')
-            .width(52)
-            .height(52)
-            .fontSize(20)
+            .width(this.isTablet ? 64 : 52)
+            .height(this.isTablet ? 64 : 52)
+            .fontSize(this.isTablet ? 26 : 20)
             .backgroundColor('rgba(0, 212, 255, 0.1)')
             .fontColor('#00d4ff')
             .border({ width: 1, color: '#00d4ff' })
             .borderRadius(6)
             .onClick(() => this.changeDirection('LEFT'))
 
-          Blank().width(52)
+          Blank().width(this.isTablet ? 64 : 52)
 
           Button('►')
-            .width(52)
-            .height(52)
-            .fontSize(20)
+            .width(this.isTablet ? 64 : 52)
+            .height(this.isTablet ? 64 : 52)
+            .fontSize(this.isTablet ? 26 : 20)
             .backgroundColor('rgba(0, 212, 255, 0.1)')
             .fontColor('#00d4ff')
             .border({ width: 1, color: '#00d4ff' })
             .borderRadius(6)
             .onClick(() => this.changeDirection('RIGHT'))
         }
-        .width(156)
+        .width(this.isTablet ? 192 : 156)
         .margin({ top: 8, bottom: 8 })
 
         Button('▼')
-          .width(52)
-          .height(52)
-          .fontSize(20)
+          .width(this.isTablet ? 64 : 52)
+          .height(this.isTablet ? 64 : 52)
+          .fontSize(this.isTablet ? 26 : 20)
           .backgroundColor('rgba(0, 212, 255, 0.1)')
           .fontColor('#00d4ff')
           .border({ width: 1, color: '#00d4ff' })
@@ -385,6 +476,13 @@ struct Index {
           .onClick(() => this.changeDirection('DOWN'))
       }
       .margin({ top: 8 })
+
+      Row() {
+        Text('一次开发 · 多端部署 · 自由流转')
+          .fontSize(11)
+          .fontColor('rgba(255,255,255,0.25)')
+      }
+      .margin({ top: 12, bottom: 8 })
     }
     .width('100%')
     .height('100%')
