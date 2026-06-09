@@ -42,8 +42,8 @@ struct Index {
   @State walls: Point[] = [];
   @State snakeDirection: string = 'RIGHT';
   @State currentSpeed: number = 160;
-  @State gridSize: number = 28;
-  @State cellSize: number = 14;
+  @State gridSize: number = 22;
+  @State cellSize: number = 15;
   @State isTablet: boolean = false;
   @State deviceTypeLabel: string = '手机';
   @State level: number = 1;
@@ -70,19 +70,19 @@ struct Index {
       const screenWidth = 360;
       if (screenWidth >= 600) {
         this.isTablet = true;
-        this.gridSize = 32;
-        this.cellSize = 16;
+        this.gridSize = 26;
+        this.cellSize = 18;
         this.deviceTypeLabel = '平板';
       } else {
         this.isTablet = false;
-        this.gridSize = 28;
-        this.cellSize = 14;
+        this.gridSize = 22;
+        this.cellSize = 15;
         this.deviceTypeLabel = '手机';
       }
     } catch (e) {
       this.isTablet = false;
-      this.gridSize = 28;
-      this.cellSize = 14;
+      this.gridSize = 22;
+      this.cellSize = 15;
       this.deviceTypeLabel = '手机';
     }
   }
