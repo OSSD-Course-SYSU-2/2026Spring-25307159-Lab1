@@ -3,34 +3,52 @@ interface Point {
   y: number;
 }
 
+interface Item {
+  pos: Point;
+  type: string;
+  timer: number;
+}
+
 interface GameSaveData {
   snake: Point[];
   food: Point;
+  items: Item[];
   direction: string;
   score: number;
   highScore: number;
   speed: number;
   gameState: string;
+  walls: Point[];
+  level: number;
+  shieldTurns: number;
 }
 
 @Entry
 @Component
 struct Index {
-  private readonly INITIAL_SPEED: number = 180;
-  private readonly MIN_SPEED: number = 80;
-  private readonly SPEED_STEP: number = 3;
+  private readonly INITIAL_SPEED: number = 160;
+  private readonly MIN_SPEED: number = 60;
+  private readonly SPEED_STEP: number = 2;
+  private readonly ITEM_SPAWN_INTERVAL: number = 8;
+  private readonly ITEM_LIFETIME: number = 50;
+  private readonly MAX_ITEMS: number = 3;
 
   @State gameState: string = 'IDLE';
   @State score: number = 0;
   @State highScore: number = 0;
   @State snake: Point[] = [];
   @State food: Point = { x: 0, y: 0 };
+  @State items: Item[] = [];
+  @State walls: Point[] = [];
   @State snakeDirection: string = 'RIGHT';
-  @State currentSpeed: number = 180;
-  @State gridSize: number = 20;
-  @State cellSize: number = 18;
+  @State currentSpeed: number = 160;
+  @State gridSize: number = 28;
+  @State cellSize: number = 14;
   @State isTablet: boolean = false;
   @State deviceTypeLabel: string = '手机';
+  @State level: number = 1;
+  @State shieldTurns: number = 0;
+  @State moveCount: number = 0;
 
   private settings: RenderingContextSettings = new RenderingContextSettings(true);
   private context: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.settings);
@@ -48,24 +66,23 @@ struct Index {
   }
 
   private detectDevice(): void {
-    const display = this.context;
     try {
       const screenWidth = 360;
       if (screenWidth >= 600) {
         this.isTablet = true;
-        this.gridSize = 24;
-        this.cellSize = 22;
+        this.gridSize = 32;
+        this.cellSize = 16;
         this.deviceTypeLabel = '平板';
       } else {
         this.isTablet = false;
-        this.gridSize = 20;
-        this.cellSize = 18;
+        this.gridSize = 28;
+        this.cellSize = 14;
         this.deviceTypeLabel = '手机';
       }
     } catch (e) {
       this.isTablet = false;
-      this.gridSize = 20;
-      this.cellSize = 18;
+      this.gridSize = 28;
+      this.cellSize = 14;
       this.deviceTypeLabel = '手机';
     }
   }
@@ -77,12 +94,16 @@ struct Index {
         const data: GameSaveData = JSON.parse(restoreData) as GameSaveData;
         this.snake = data.snake;
         this.food = data.food;
+        this.items = data.items ?? [];
+        this.walls = data.walls ?? [];
         this.snakeDirection = data.direction;
         this.nextDirection = data.direction;
         this.score = data.score;
         this.highScore = data.highScore;
         this.currentSpeed = data.speed;
         this.gameState = data.gameState;
+        this.level = data.level ?? 1;
+        this.shieldTurns = data.shieldTurns ?? 0;
         AppStorage.delete('restoreGameData');
         if (this.gameState === 'PLAYING') {
           this.startTimer();
@@ -97,11 +118,15 @@ struct Index {
     const data: GameSaveData = {
       snake: this.snake,
       food: this.food,
+      items: this.items,
       direction: this.snakeDirection,
       score: this.score,
       highScore: this.highScore,
       speed: this.currentSpeed,
-      gameState: this.gameState
+      gameState: this.gameState,
+      walls: this.walls,
+      level: this.level,
+      shieldTurns: this.shieldTurns
     };
     return JSON.stringify(data);
   }
@@ -126,7 +151,43 @@ struct Index {
     this.nextDirection = 'RIGHT';
     this.score = 0;
     this.currentSpeed = this.INITIAL_SPEED;
+    this.level = 1;
+    this.shieldTurns = 0;
+    this.moveCount = 0;
+    this.items = [];
+    this.walls = [];
+    this.generateWalls();
     this.generateFood();
+  }
+
+  private generateWalls(): void {
+    this.walls = [];
+    const wallCount = this.level * 4;
+    const occupied = new Set<string>();
+    this.snake.forEach(p => occupied.add(`${p.x},${p.y}`));
+    occupied.add(`${this.food.x},${this.food.y}`);
+
+    const cx = Math.floor(this.gridSize / 2);
+    const cy = Math.floor(this.gridSize / 2);
+    for (let dx = -3; dx <= 3; dx++) {
+      for (let dy = -3; dy <= 3; dy++) {
+        occupied.add(`${cx + dx},${cy + dy}`);
+      }
+    }
+
+    for (let i = 0; i < wallCount; i++) {
+      let wx: number, wy: number;
+      let attempts = 0;
+      do {
+        wx = Math.floor(Math.random() * (this.gridSize - 2)) + 1;
+        wy = Math.floor(Math.random() * (this.gridSize - 2)) + 1;
+        attempts++;
+      } while (occupied.has(`${wx},${wy}`) && attempts < 100);
+      if (attempts < 100) {
+        this.walls.push({ x: wx, y: wy });
+        occupied.add(`${wx},${wy}`);
+      }
+    }
   }
 
   private generateFood(): void {
@@ -136,12 +197,62 @@ struct Index {
         x: Math.floor(Math.random() * this.gridSize),
         y: Math.floor(Math.random() * this.gridSize)
       };
-    } while (this.isOnSnake(newFood));
+    } while (this.isOccupied(newFood));
     this.food = newFood;
+  }
+
+  private isOccupied(point: Point): boolean {
+    if (this.snake.some(s => s.x === point.x && s.y === point.y)) return true;
+    if (this.walls.some(w => w.x === point.x && w.y === point.y)) return true;
+    if (this.items.some(it => it.pos.x === point.x && it.pos.y === point.y)) return true;
+    return false;
   }
 
   private isOnSnake(point: Point): boolean {
     return this.snake.some(segment => segment.x === point.x && segment.y === point.y);
+  }
+
+  private isOnWall(point: Point): boolean {
+    return this.walls.some(w => w.x === point.x && w.y === point.y);
+  }
+
+  private spawnItem(): void {
+    if (this.items.length >= this.MAX_ITEMS) return;
+    const types = ['speed', 'slow', 'double', 'shield', 'shrink'];
+    const type = types[Math.floor(Math.random() * types.length)];
+    let pos: Point;
+    let attempts = 0;
+    do {
+      pos = {
+        x: Math.floor(Math.random() * this.gridSize),
+        y: Math.floor(Math.random() * this.gridSize)
+      };
+      attempts++;
+    } while (this.isOccupied(pos) && attempts < 100);
+    if (attempts < 100) {
+      this.items = [...this.items, { pos, type, timer: this.ITEM_LIFETIME }];
+    }
+  }
+
+  private applyItem(type: string): void {
+    if (type === 'speed') {
+      if (this.currentSpeed > this.MIN_SPEED + 20) {
+        this.currentSpeed -= 15;
+        this.startTimer();
+      }
+    } else if (type === 'slow') {
+      this.currentSpeed = Math.min(this.currentSpeed + 30, 250);
+      this.startTimer();
+    } else if (type === 'double') {
+      this.score += 20;
+    } else if (type === 'shield') {
+      this.shieldTurns = 5;
+    } else if (type === 'shrink') {
+      if (this.snake.length > 3) {
+        const removeCount = Math.min(3, this.snake.length - 3);
+        this.snake = this.snake.slice(0, this.snake.length - removeCount);
+      }
+    }
   }
 
   private startGame(): void {
@@ -175,6 +286,14 @@ struct Index {
 
   private gameLoop(): void {
     this.snakeDirection = this.nextDirection;
+    this.moveCount++;
+
+    this.items = this.items.map(it => ({ ...it, timer: it.timer - 1 })).filter(it => it.timer > 0);
+
+    if (this.moveCount % this.ITEM_SPAWN_INTERVAL === 0) {
+      this.spawnItem();
+    }
+
     this.moveSnake();
     this.checkCollision();
     this.drawGame();
@@ -201,6 +320,11 @@ struct Index {
       if (this.score > this.highScore) {
         this.highScore = this.score;
       }
+      const newLevel = Math.floor(this.score / 100) + 1;
+      if (newLevel > this.level) {
+        this.level = newLevel;
+        this.generateWalls();
+      }
       this.generateFood();
       if (this.currentSpeed > this.MIN_SPEED) {
         this.currentSpeed -= this.SPEED_STEP;
@@ -209,18 +333,51 @@ struct Index {
     } else {
       this.snake.pop();
     }
+
+    const hitItem = this.items.find(it => it.pos.x === newHead.x && it.pos.y === newHead.y);
+    if (hitItem) {
+      this.applyItem(hitItem.type);
+      this.items = this.items.filter(it => it !== hitItem);
+    }
+
+    if (this.shieldTurns > 0) {
+      this.shieldTurns--;
+    }
   }
 
   private checkCollision(): void {
     const head = this.snake[0];
     if (head.x < 0 || head.x >= this.gridSize || head.y < 0 || head.y >= this.gridSize) {
-      this.gameOver();
-      return;
-    }
-    for (let i = 1; i < this.snake.length; i++) {
-      if (head.x === this.snake[i].x && head.y === this.snake[i].y) {
+      if (this.shieldTurns > 0) {
+        this.shieldTurns = 0;
+        if (head.x < 0) head.x = this.gridSize - 1;
+        else if (head.x >= this.gridSize) head.x = 0;
+        else if (head.y < 0) head.y = this.gridSize - 1;
+        else if (head.y >= this.gridSize) head.y = 0;
+        this.snake[0] = head;
+      } else {
         this.gameOver();
         return;
+      }
+    }
+
+    if (this.isOnWall(head)) {
+      if (this.shieldTurns > 0) {
+        this.shieldTurns = 0;
+      } else {
+        this.gameOver();
+        return;
+      }
+    }
+
+    for (let i = 1; i < this.snake.length; i++) {
+      if (head.x === this.snake[i].x && head.y === this.snake[i].y) {
+        if (this.shieldTurns > 0) {
+          this.shieldTurns = 0;
+        } else {
+          this.gameOver();
+          return;
+        }
       }
     }
   }
@@ -235,6 +392,8 @@ struct Index {
     this.context.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
     this.drawBackground();
     this.drawGrid();
+    this.drawWalls();
+    this.drawItems();
     this.drawFood();
     this.drawSnake();
   }
@@ -245,7 +404,7 @@ struct Index {
   }
 
   private drawGrid(): void {
-    this.context.strokeStyle = 'rgba(255,255,255,0.04)';
+    this.context.strokeStyle = 'rgba(255,255,255,0.03)';
     this.context.lineWidth = 0.5;
     for (let i = 1; i < this.gridSize; i++) {
       this.context.beginPath();
@@ -259,6 +418,18 @@ struct Index {
     }
   }
 
+  private drawWalls(): void {
+    this.walls.forEach(w => {
+      const x = w.x * this.cellSize;
+      const y = w.y * this.cellSize;
+      this.context.fillStyle = '#3a3a5c';
+      this.context.fillRect(x + 1, y + 1, this.cellSize - 2, this.cellSize - 2);
+      this.context.strokeStyle = '#5a5a8c';
+      this.context.lineWidth = 0.5;
+      this.context.strokeRect(x + 1, y + 1, this.cellSize - 2, this.cellSize - 2);
+    });
+  }
+
   private drawSnake(): void {
     this.snake.forEach((segment, index) => {
       const x = segment.x * this.cellSize;
@@ -266,7 +437,11 @@ struct Index {
       const pad = index === 0 ? 1 : 2;
 
       if (index === 0) {
-        this.context.fillStyle = '#00d4ff';
+        if (this.shieldTurns > 0) {
+          this.context.fillStyle = '#ffd700';
+        } else {
+          this.context.fillStyle = '#00d4ff';
+        }
         this.context.fillRect(x + pad, y + pad, this.cellSize - pad * 2, this.cellSize - pad * 2);
         this.context.fillStyle = '#ffffff';
         const eyeSize = 2;
@@ -308,6 +483,57 @@ struct Index {
     this.context.fill();
   }
 
+  private getItemColor(type: string): string {
+    if (type === 'speed') return '#ff6600';
+    if (type === 'slow') return '#66ff66';
+    if (type === 'double') return '#ffff00';
+    if (type === 'shield') return '#ffd700';
+    if (type === 'shrink') return '#cc66ff';
+    return '#ffffff';
+  }
+
+  private getItemSymbol(type: string): string {
+    if (type === 'speed') return 'S';
+    if (type === 'slow') return 'W';
+    if (type === 'double') return '2';
+    if (type === 'shield') return 'D';
+    if (type === 'shrink') return 'X';
+    return '?';
+  }
+
+  private drawItems(): void {
+    this.items.forEach(item => {
+      const x = item.pos.x * this.cellSize;
+      const y = item.pos.y * this.cellSize;
+      const alpha = Math.min(1, item.timer / 10);
+      const color = this.getItemColor(item.type);
+
+      this.context.save();
+      this.context.globalAlpha = alpha;
+      this.context.fillStyle = color;
+      this.context.beginPath();
+      this.context.arc(
+        x + this.cellSize / 2,
+        y + this.cellSize / 2,
+        this.cellSize / 2 - 1,
+        0,
+        2 * Math.PI
+      );
+      this.context.fill();
+
+      this.context.fillStyle = '#000000';
+      this.context.font = `bold ${Math.floor(this.cellSize * 0.6)}px sans-serif`;
+      this.context.textAlign = 'center';
+      this.context.textBaseline = 'middle';
+      this.context.fillText(
+        this.getItemSymbol(item.type),
+        x + this.cellSize / 2,
+        y + this.cellSize / 2
+      );
+      this.context.restore();
+    });
+  }
+
   private changeDirection(newDirection: string): void {
     if (this.gameState !== 'PLAYING') return;
     let isOpposite = false;
@@ -327,26 +553,39 @@ struct Index {
           .fontSize(this.isTablet ? 30 : 24)
           .fontWeight(FontWeight.Bold)
           .fontColor('#00d4ff')
-          .margin({ right: 20 })
+          .margin({ right: 12 })
 
         Text(`[${this.deviceTypeLabel}]`)
-          .fontSize(12)
+          .fontSize(11)
           .fontColor('rgba(0, 212, 255, 0.5)')
-          .margin({ right: 12 })
+          .margin({ right: 8 })
+
+        Text(`Lv.${this.level}`)
+          .fontSize(13)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#ffd700')
+          .margin({ right: 8 })
+
+        if (this.shieldTurns > 0) {
+          Text('🛡')
+            .fontSize(14)
+            .margin({ right: 8 })
+        }
 
         Blank()
 
-        Text(`分数: ${this.score}`)
-          .fontSize(this.isTablet ? 18 : 16)
+        Text(`${this.score}`)
+          .fontSize(this.isTablet ? 20 : 18)
+          .fontWeight(FontWeight.Bold)
           .fontColor('#00d4ff')
-          .margin({ right: 16 })
+          .margin({ right: 12 })
 
-        Text(`最高: ${this.highScore}`)
-          .fontSize(this.isTablet ? 18 : 16)
+        Text(`最高:${this.highScore}`)
+          .fontSize(this.isTablet ? 14 : 12)
           .fontColor('#ff4da6')
       }
       .width('100%')
-      .padding({ left: 20, right: 20, top: 16, bottom: 8 })
+      .padding({ left: 16, right: 16, top: 12, bottom: 6 })
 
       Stack() {
         Canvas(this.context)
@@ -369,18 +608,24 @@ struct Index {
                 .fontSize(this.isTablet ? 56 : 40)
                 .fontWeight(FontWeight.Bold)
                 .fontColor('#ff4da6')
+                .margin({ bottom: 8 })
+
+              Text(`等级 Lv.${this.level}`)
+                .fontSize(16)
+                .fontColor('rgba(255,77,166,0.7)')
                 .margin({ bottom: 16 })
             } else {
               Text('贪吃蛇')
                 .fontSize(this.isTablet ? 36 : 28)
                 .fontWeight(FontWeight.Bold)
                 .fontColor('#00d4ff')
-                .margin({ bottom: 16 })
+                .margin({ bottom: 12 })
 
-              Text('支持多端部署与自由流转')
-                .fontSize(12)
-                .fontColor('rgba(255,255,255,0.4)')
-                .margin({ bottom: 16 })
+              Column() {
+                Text('S加速  W减速  2双倍分').fontSize(11).fontColor('rgba(255,255,255,0.35)')
+                Text('D护盾  X缩短').fontSize(11).fontColor('rgba(255,255,255,0.35)')
+              }
+              .margin({ bottom: 16 })
             }
 
             Button(this.gameState === 'OVER' ? '再来一局' : '开始游戏')
@@ -401,23 +646,23 @@ struct Index {
       .width(this.canvasWidth)
       .height(this.canvasHeight)
       .border({ width: 2, color: '#00d4ff' })
-      .margin({ top: 8 })
+      .margin({ top: 6 })
 
       Row() {
         if (this.gameState === 'PLAYING') {
           Button('暂停')
-            .width(80)
-            .height(36)
-            .fontSize(14)
+            .width(70)
+            .height(32)
+            .fontSize(13)
             .fontColor('#ffffff')
             .backgroundColor('#ff9800')
             .borderRadius(8)
             .onClick(() => this.pauseGame())
         } else if (this.gameState === 'PAUSED') {
           Button('继续')
-            .width(80)
-            .height(36)
-            .fontSize(14)
+            .width(70)
+            .height(32)
+            .fontSize(13)
             .fontColor('#ffffff')
             .backgroundColor('#4CAF50')
             .borderRadius(8)
@@ -426,13 +671,13 @@ struct Index {
       }
       .width('100%')
       .justifyContent(FlexAlign.Center)
-      .margin({ top: 12 })
+      .margin({ top: 8 })
 
       Column() {
         Button('▲')
-          .width(this.isTablet ? 64 : 52)
-          .height(this.isTablet ? 64 : 52)
-          .fontSize(this.isTablet ? 26 : 20)
+          .width(this.isTablet ? 60 : 48)
+          .height(this.isTablet ? 60 : 48)
+          .fontSize(this.isTablet ? 24 : 18)
           .backgroundColor('rgba(0, 212, 255, 0.1)')
           .fontColor('#00d4ff')
           .border({ width: 1, color: '#00d4ff' })
@@ -441,48 +686,48 @@ struct Index {
 
         Row() {
           Button('◄')
-            .width(this.isTablet ? 64 : 52)
-            .height(this.isTablet ? 64 : 52)
-            .fontSize(this.isTablet ? 26 : 20)
+            .width(this.isTablet ? 60 : 48)
+            .height(this.isTablet ? 60 : 48)
+            .fontSize(this.isTablet ? 24 : 18)
             .backgroundColor('rgba(0, 212, 255, 0.1)')
             .fontColor('#00d4ff')
             .border({ width: 1, color: '#00d4ff' })
             .borderRadius(6)
             .onClick(() => this.changeDirection('LEFT'))
 
-          Blank().width(this.isTablet ? 64 : 52)
+          Blank().width(this.isTablet ? 60 : 48)
 
           Button('►')
-            .width(this.isTablet ? 64 : 52)
-            .height(this.isTablet ? 64 : 52)
-            .fontSize(this.isTablet ? 26 : 20)
+            .width(this.isTablet ? 60 : 48)
+            .height(this.isTablet ? 60 : 48)
+            .fontSize(this.isTablet ? 24 : 18)
             .backgroundColor('rgba(0, 212, 255, 0.1)')
             .fontColor('#00d4ff')
             .border({ width: 1, color: '#00d4ff' })
             .borderRadius(6)
             .onClick(() => this.changeDirection('RIGHT'))
         }
-        .width(this.isTablet ? 192 : 156)
-        .margin({ top: 8, bottom: 8 })
+        .width(this.isTablet ? 180 : 144)
+        .margin({ top: 6, bottom: 6 })
 
         Button('▼')
-          .width(this.isTablet ? 64 : 52)
-          .height(this.isTablet ? 64 : 52)
-          .fontSize(this.isTablet ? 26 : 20)
+          .width(this.isTablet ? 60 : 48)
+          .height(this.isTablet ? 60 : 48)
+          .fontSize(this.isTablet ? 24 : 18)
           .backgroundColor('rgba(0, 212, 255, 0.1)')
           .fontColor('#00d4ff')
           .border({ width: 1, color: '#00d4ff' })
           .borderRadius(6)
           .onClick(() => this.changeDirection('DOWN'))
       }
-      .margin({ top: 8 })
+      .margin({ top: 6 })
 
       Row() {
         Text('一次开发 · 多端部署 · 自由流转')
-          .fontSize(11)
-          .fontColor('rgba(255,255,255,0.25)')
+          .fontSize(10)
+          .fontColor('rgba(255,255,255,0.2)')
       }
-      .margin({ top: 12, bottom: 8 })
+      .margin({ top: 8, bottom: 6 })
     }
     .width('100%')
     .height('100%')
