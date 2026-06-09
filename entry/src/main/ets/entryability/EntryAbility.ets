@@ -1,20 +1,9 @@
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
-import { AbilityDelegatorRegistry } from '@kit.TestKit';
 
 const DOMAIN = 0x0000;
 const TAG = 'SnakeGame';
-
-interface GameContinueData {
-  snake: Array<{ x: number; y: number }>;
-  food: { x: number; y: number };
-  direction: string;
-  score: number;
-  highScore: number;
-  speed: number;
-  gameState: string;
-}
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
@@ -56,14 +45,6 @@ export default class EntryAbility extends UIAbility {
 
   onContinue(wantParam: Record<string, Object>): AbilityConstant.OnContinueResult {
     hilog.info(DOMAIN, TAG, '%{public}s', 'Ability onContinue');
-
-    const gameDataStr = wantParam['gameData'] as string;
-    if (gameDataStr) {
-      hilog.info(DOMAIN, TAG, 'onContinue with game data: %{public}s', gameDataStr);
-      return AbilityConstant.OnContinueResult.AGREE;
-    }
-
-    hilog.info(DOMAIN, TAG, 'onContinue without game data, agree to migrate');
     return AbilityConstant.OnContinueResult.AGREE;
   }
 
@@ -72,7 +53,7 @@ export default class EntryAbility extends UIAbility {
     if (want.parameters) {
       const gameDataStr = want.parameters['gameData'] as string;
       if (gameDataStr) {
-        hilog.info(DOMAIN, TAG, 'Restore game data from onNewWant: %{public}s', gameDataStr);
+        hilog.info(DOMAIN, TAG, 'Restore game data from onNewWant');
         AppStorage.setOrCreate<string>('restoreGameData', gameDataStr);
       }
     }
@@ -83,17 +64,9 @@ export default class EntryAbility extends UIAbility {
     if (want.parameters) {
       const gameDataStr = want.parameters['gameData'] as string;
       if (gameDataStr) {
-        hilog.info(DOMAIN, TAG, 'Restore game data: %{public}s', gameDataStr);
+        hilog.info(DOMAIN, TAG, 'Restore game data');
         AppStorage.setOrCreate<string>('restoreGameData', gameDataStr);
       }
     }
-  }
-
-  onConfigurationChange(newConfig: ConfigurationConstant.Configuration): void {
-    hilog.info(DOMAIN, TAG, 'Ability onConfigurationChange: %{public}s', JSON.stringify(newConfig));
-  }
-
-  onMemoryLevel(level: AbilityConstant.MemoryLevel): void {
-    hilog.info(DOMAIN, TAG, 'Ability onMemoryLevel: %{public}d', level);
   }
 }

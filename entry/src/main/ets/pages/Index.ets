@@ -156,8 +156,8 @@ struct Index {
     this.moveCount = 0;
     this.items = [];
     this.walls = [];
-    this.generateWalls();
     this.generateFood();
+    this.generateWalls();
   }
 
   private generateWalls(): void {
@@ -288,7 +288,15 @@ struct Index {
     this.snakeDirection = this.nextDirection;
     this.moveCount++;
 
-    this.items = this.items.map(it => ({ ...it, timer: it.timer - 1 })).filter(it => it.timer > 0);
+    const updatedItems: Item[] = [];
+    for (let i = 0; i < this.items.length; i++) {
+      const it = this.items[i];
+      const newItem: Item = { pos: it.pos, type: it.type, timer: it.timer - 1 };
+      if (newItem.timer > 0) {
+        updatedItems.push(newItem);
+      }
+    }
+    this.items = updatedItems;
 
     if (this.moveCount % this.ITEM_SPAWN_INTERVAL === 0) {
       this.spawnItem();
@@ -346,15 +354,19 @@ struct Index {
   }
 
   private checkCollision(): void {
-    const head = this.snake[0];
+    let head = this.snake[0];
     if (head.x < 0 || head.x >= this.gridSize || head.y < 0 || head.y >= this.gridSize) {
       if (this.shieldTurns > 0) {
         this.shieldTurns = 0;
-        if (head.x < 0) head.x = this.gridSize - 1;
-        else if (head.x >= this.gridSize) head.x = 0;
-        else if (head.y < 0) head.y = this.gridSize - 1;
-        else if (head.y >= this.gridSize) head.y = 0;
-        this.snake[0] = head;
+        let nx = head.x;
+        let ny = head.y;
+        if (nx < 0) nx = this.gridSize - 1;
+        else if (nx >= this.gridSize) nx = 0;
+        if (ny < 0) ny = this.gridSize - 1;
+        else if (ny >= this.gridSize) ny = 0;
+        const newHead: Point = { x: nx, y: ny };
+        this.snake[0] = newHead;
+        head = newHead;
       } else {
         this.gameOver();
         return;
